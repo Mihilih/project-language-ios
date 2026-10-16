@@ -1,0 +1,3 @@
+// Google Sign-In's return URL scheme: REVERSED_CLIENT_ID from GoogleService-Info.plist.
+// scripts/setup.sh writes this for you; edit by hand only if you're not using the script.
+GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.not-configured-yet
