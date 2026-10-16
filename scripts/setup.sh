@@ -24,9 +24,18 @@ else
   echo "Note: $PLIST is missing. Download it from the Firebase console (see README)."
 fi
 
-if ! command -v xcodegen >/dev/null 2>&1; then
-  echo "XcodeGen isn't installed. Run: brew install xcodegen" >&2
-  exit 1
+# Use an installed XcodeGen, or download it into .tools/ (no Homebrew or admin password needed).
+if command -v xcodegen >/dev/null 2>&1; then
+  XCODEGEN=xcodegen
+else
+  XCODEGEN=".tools/xcodegen/bin/xcodegen"
+  if [ ! -x "$XCODEGEN" ]; then
+    echo "Downloading XcodeGen..."
+    mkdir -p .tools
+    curl -fsSL -o .tools/xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/latest/download/xcodegen.zip
+    unzip -q -o .tools/xcodegen.zip -d .tools
+    rm .tools/xcodegen.zip
+  fi
 fi
-xcodegen generate
+"$XCODEGEN" generate
 echo "Done. Open Vadan.xcodeproj."
