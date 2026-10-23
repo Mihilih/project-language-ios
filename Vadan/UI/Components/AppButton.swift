@@ -19,7 +19,7 @@ struct AppButton: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 if let icon {
-                    Image(systemName: icon).font(.system(size: 15, weight: .semibold))
+                    AppSymbol(name: icon).font(.system(size: 15, weight: .semibold))
                 }
                 Text(text)
                     .font(AppFont.dmSans(15, .bold))
@@ -76,7 +76,7 @@ struct PrimaryPillButton: View {
                 if loading {
                     ProgressView().tint(content).controlSize(.small)
                 } else if let icon {
-                    Image(systemName: icon).font(.system(size: 15, weight: .semibold))
+                    AppSymbol(name: icon).font(.system(size: 15, weight: .semibold))
                 }
                 Text(text).font(AppFont.dmSans(fontSize, .bold)).lineLimit(1)
                 if let trailingIcon {
@@ -115,7 +115,7 @@ struct OutlinePillButton: View {
                 if loading {
                     ProgressView().tint(content).controlSize(.small)
                 } else {
-                    if let icon { Image(systemName: icon).font(.system(size: 14, weight: .semibold)) }
+                    if let icon { AppSymbol(name: icon).font(.system(size: 14, weight: .semibold)) }
                     Text(text).font(AppFont.dmSans(fontSize, .bold)).lineLimit(1)
                 }
             }
@@ -154,5 +154,18 @@ struct PlainTextButton: View {
         }
         .buttonStyle(PressableStyle())
         .disabled(!enabled)
+    }
+}
+
+/**
+ * An SF Symbol, adjusted to match the Material icon Android uses. Apple's paper plane points
+ * up-right; Android's Send icon points right, so it's turned 45°.
+ */
+struct AppSymbol: View {
+    let name: String
+
+    var body: some View {
+        Image(systemName: name)
+            .rotationEffect(name.hasPrefix("paperplane") ? .degrees(45) : .zero)
     }
 }

@@ -175,21 +175,18 @@ struct LibraryScreen: View {
     private func phraseList(_ phrases: [Phrase]) -> some View {
         List {
             ForEach(phrases) { phrase in
-                PhraseCard(
-                    phrase: phrase,
-                    onFavoriteToggle: viewModel.toggleFavorite,
-                    onSuggest: { suggestTarget = SuggestTarget(id: phrase.id) }
-                )
+                // Swipe left to delete; VoiceOver users get the same as an action.
+                SwipeToDelete(onDelete: { deletePhrase(phrase) }) {
+                    PhraseCard(
+                        phrase: phrase,
+                        onFavoriteToggle: viewModel.toggleFavorite,
+                        onSuggest: { suggestTarget = SuggestTarget(id: phrase.id) }
+                    )
+                }
+                .id(phrase.id)
                 .listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
-                // Swipe left to delete; VoiceOver users get the same as an action.
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    Button(role: .destructive) { deletePhrase(phrase) } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                    .tint(AppColor.primary)
-                }
                 .accessibilityAction(named: "Delete \(phrase.original)") { deletePhrase(phrase) }
             }
             // Leave room for the floating study button.
@@ -486,5 +483,91 @@ private struct RemovableChip: View {
         }
         .buttonStyle(PressableStyle())
         .accessibilityLabel("Remove filter \(label)")
+    }
+}
+
+/**
+ * Swipe left to delete, drawn like Android's SwipeToDismissBox: a clay panel the full size of the
+ * card, reading "Delete" with a bin, appears behind it. (iOS's own swipe actions show a small
+ * button in the middle of the row instead.) Past 40% of the width, or a quick flick, deletes.
+ */
+struct SwipeToDelete<Content: View>: View {
+    let onDelete: () -> Void
+    @ViewBuilder var content: () -> Content
+
+    @State private var offset: CGFloat = 0
+    @State private var width: CGFloat = 0
+    /** Locked on the first movement, so vertical scrolling never drags the card sideways. */
+    @State private var horizontal: Bool? = nil
+    @State private var deleting = false
+    /** True while a finger is down; resets by itself even if scrolling cancels the drag. */
+    @GestureState private var dragging = false
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            HStack(spacing: 8) {
+                Text("Delete")
+                    .font(AppFont.dmSans(15, .bold))
+                Image(systemName: "trash")
+                    .font(.system(size: 17, weight: .semibold))
+            }
+            .foregroundStyle(AppColor.textInverse)
+            .padding(.trailing, 24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(AppColor.primary))
+            .opacity(offset < 0 ? 1 : 0)
+            // Only seen mid-swipe; VoiceOver users get the "Delete …" action instead.
+            .accessibilityHidden(true)
+
+            content()
+                .offset(x: offset)
+        }
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { width = proxy.size.width }
+                    .onChange(of: proxy.size.width) { _, new in width = new }
+            }
+        )
+        // A drag that ends without onEnded (the list took over to scroll) springs back.
+        .onChange(of: dragging) { _, isDragging in
+            guard !isDragging else { return }
+            DispatchQueue.main.async {
+                horizontal = nil
+                if !deleting && offset != 0 {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { offset = 0 }
+                }
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 15)
+                .updating($dragging) { _, state, _ in state = true }
+                .onChanged { value in
+                    if horizontal == nil {
+                        horizontal = abs(value.translation.width) > abs(value.translation.height)
+                    }
+                    guard horizontal == true else { return }
+                    offset = min(0, value.translation.width)
+                }
+                .onEnded { value in
+                    defer { horizontal = nil }
+                    guard horizontal == true, width > 0 else { return }
+                    let farEnough = -value.translation.width > width * 0.4
+                    let flicked = value.predictedEndTranslation.width < -width * 0.8
+                    if farEnough || flicked {
+                        deleting = true
+                        withAnimation(.easeOut(duration: 0.18)) { offset = -width }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                            onDelete()
+                            // The phrase leaves the list on its own; reset in case Undo
+                            // brings this card back.
+                            offset = 0
+                            deleting = false
+                        }
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { offset = 0 }
+                    }
+                }
+        )
     }
 }

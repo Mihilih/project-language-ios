@@ -88,8 +88,15 @@ struct TranslateBox<Footer: View>: View {
             .padding(.horizontal, 20)
             .padding(.top, 10)
             .padding(.bottom, 16)
+            // Tapping anywhere outside the text closes the keyboard (the field is multi-line,
+            // so Return adds a line instead).
+            .background(
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { KeyboardObserver.dismiss() }
+            )
         }
-        .scrollDismissesKeyboard(.interactively)
+        .scrollDismissesKeyboard(.immediately)
         .background(AppColor.backgroundSecondary)
         .appSheet(item: $picking, fullHeight: true) { side in
             LanguagePickerSheet(
@@ -180,8 +187,6 @@ struct TranslateInputTextField: View {
     var showClear: Bool = false
     var onClear: () -> Void = {}
 
-    @FocusState private var focused: Bool
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !languageLabel.isEmpty {
@@ -200,39 +205,21 @@ struct TranslateInputTextField: View {
                     .foregroundStyle(AppColor.textPrimary)
                     .tint(AppColor.accent)
                     .lineLimit(1...)
-                    .focused($focused)
                     .accessibilityLabel("Type or paste a phrase to translate")
             }
             .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
-            if showClear || focused {
-                HStack(spacing: 4) {
-                    // A multi-line field's Return key adds a line, so iOS needs a way to close
-                    // the keyboard (Android has its back button). Without one, the keyboard
-                    // stayed up and the tab bar stayed hidden.
-                    if focused {
-                        Button { focused = false } label: {
-                            Text("Done")
-                                .font(AppFont.dmSans(15, .semibold))
-                                .foregroundStyle(AppColor.accent)
-                                .padding(.horizontal, 10)
-                                .frame(height: 40)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PressableStyle())
-                        .accessibilityLabel("Hide keyboard")
-                    }
+            if showClear {
+                HStack {
                     Spacer()
-                    if showClear {
-                        Button(action: onClear) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(AppColor.textSecondary)
-                                .frame(width: 40, height: 40)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PressableStyle())
-                        .accessibilityLabel("Clear text")
+                    Button(action: onClear) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(AppColor.textSecondary)
+                            .frame(width: 40, height: 40)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(PressableStyle())
+                    .accessibilityLabel("Clear text")
                 }
             }
         }

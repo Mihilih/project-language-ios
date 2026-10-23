@@ -45,7 +45,7 @@ struct PhraseCard: View {
 
                 if let onSuggest {
                     Button(action: onSuggest) {
-                        Image(systemName: "paperplane")
+                        AppSymbol(name: "paperplane")
                             .font(.system(size: 17, weight: .medium))
                             .foregroundStyle(AppColor.textSecondary)
                             .frame(width: 48, height: 48)
