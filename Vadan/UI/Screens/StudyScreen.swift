@@ -23,19 +23,12 @@ struct StudyScreen: View {
 
     var body: some View {
         let uiState = viewModel.uiState
-        let now = Phrase.nowMillis()
-        let weekCutoff = now - 7 * 24 * 60 * 60 * 1000
-        let monthCutoff = now - 30 * 24 * 60 * 60 * 1000
-
-        let collections = [
-            StudySet(key: "all", title: "All phrases", count: uiState.allPhrases.count, filter: "all"),
-            StudySet(key: "favorites", title: "Favorites", count: uiState.allPhrases.filter(\.isFavorite).count, filter: "favorites"),
-            StudySet(key: "this_week", title: "Added this week", count: uiState.allPhrases.filter { $0.timestamp >= weekCutoff }.count, filter: "this_week"),
-            StudySet(key: "this_month", title: "Added this month", count: uiState.allPhrases.filter { $0.timestamp >= monthCutoff }.count, filter: "this_month"),
-        ]
-        let languageSets = Self.languageSets(uiState)
-        let all = collections + languageSets
-        let selected = all.first { $0.key == selectedKey && $0.count > 0 }
+        let collections: [StudySet] = Self.collectionSets(uiState)
+        let languageSets: [StudySet] = Self.languageSets(uiState)
+        let all: [StudySet] = collections + languageSets
+        let selected: StudySet? = all.first { $0.key == selectedKey && $0.count > 0 }
+        let startLabel: String = Self.startLabel(selected)
+        let signature: [String] = all.map { $0.key + ":" + String($0.count) }
 
         VStack(spacing: 0) {
             AppHeader(text: "Study", subtitle: "Pick a set to practise") {
@@ -84,7 +77,7 @@ struct StudyScreen: View {
                 }
 
                 PrimaryPillButton(
-                    text: selected.map { "Start session · \(cardCountLabel($0.count))" } ?? "Save phrases to start studying",
+                    text: startLabel,
                     trailingIcon: selected == nil ? nil : "arrow.right",
                     enabled: selected != nil,
                     height: 56,
@@ -99,12 +92,50 @@ struct StudyScreen: View {
         }
         .background(AppColor.backgroundSecondary)
         // If the picked set empties (or disappears), fall back to the first one with cards.
-        .onChange(of: all.map { "\($0.key):\($0.count)" }, initial: true) { _, _ in
+        .onChange(of: signature, initial: true) { _, _ in
             if !all.contains(where: { $0.key == selectedKey && $0.count > 0 }),
                let first = all.first(where: { $0.count > 0 }) {
                 selectedKey = first.key
             }
         }
+    }
+
+    /** The four fixed collections. Built here, not in `body`, to keep type-checking fast. */
+    private static func collectionSets(_ uiState: LibraryUiState) -> [StudySet] {
+        let phrases = uiState.allPhrases
+        let now: Int64 = Phrase.nowMillis()
+        let day: Int64 = 24 * 60 * 60 * 1000
+        let weekCutoff: Int64 = now - 7 * day
+        let monthCutoff: Int64 = now - 30 * day
+
+        var favorites = 0
+        var thisWeek = 0
+        var thisMonth = 0
+        for phrase in phrases {
+            if phrase.isFavorite { favorites += 1 }
+            if phrase.timestamp >= weekCutoff { thisWeek += 1 }
+            if phrase.timestamp >= monthCutoff { thisMonth += 1 }
+        }
+
+        return [
+            StudySet(key: "all", title: "All phrases", count: phrases.count, filter: "all"),
+            StudySet(key: "favorites", title: "Favorites", count: favorites, filter: "favorites"),
+            StudySet(key: "this_week", title: "Added this week", count: thisWeek, filter: "this_week"),
+            StudySet(key: "this_month", title: "Added this month", count: thisMonth, filter: "this_month"),
+        ]
+    }
+
+    /** Label for the start button. */
+    private static func startLabel(_ selected: StudySet?) -> String {
+        guard let selected else { return "Save phrases to start studying" }
+        return "Start session · " + cardCountLabel(selected.count)
+    }
+
+    /** One language row before it becomes a StudySet. Named, not a tuple, to type-check fast. */
+    private struct LanguageCount {
+        let index: Int
+        let code: String
+        let count: Int
     }
 
     /** Phrases per language, most first (counted in a single pass). */
@@ -115,21 +146,33 @@ struct StudyScreen: View {
                 countsByLang[lang, default: 0] += 1
             }
         }
-        // Stable: equal counts keep the A–Z order of availableLanguages (like Kotlin's sortedBy).
-        return uiState.availableLanguages.enumerated()
-            .map { (index: $0.offset, code: $0.element, count: countsByLang[$0.element.lowercased()] ?? 0) }
-            .filter { $0.count > 0 }
-            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.index < $1.index }
-            .map { item in
-                StudySet(
-                    key: "lang:\(item.code)",
-                    title: Languages.displayName(item.code),
-                    count: item.count,
-                    filter: "language",
-                    lang: item.code,
-                    code: item.code.uppercased()
-                )
+
+        var counted: [LanguageCount] = []
+        for (index, code) in uiState.availableLanguages.enumerated() {
+            let count: Int = countsByLang[code.lowercased()] ?? 0
+            if count > 0 {
+                counted.append(LanguageCount(index: index, code: code, count: count))
             }
+        }
+
+        // Stable: equal counts keep the A–Z order of availableLanguages (like Kotlin's sortedBy).
+        counted.sort { (a: LanguageCount, b: LanguageCount) -> Bool in
+            if a.count != b.count { return a.count > b.count }
+            return a.index < b.index
+        }
+
+        var sets: [StudySet] = []
+        for item in counted {
+            sets.append(StudySet(
+                key: "lang:" + item.code,
+                title: Languages.displayName(item.code),
+                count: item.count,
+                filter: "language",
+                lang: item.code,
+                code: item.code.uppercased()
+            ))
+        }
+        return sets
     }
 }
 

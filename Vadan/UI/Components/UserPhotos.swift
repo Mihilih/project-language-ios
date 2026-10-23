@@ -10,9 +10,9 @@ import UIKit
 final class UserPhotos: ObservableObject {
     static let shared = UserPhotos()
 
-    private static let sidePx: CGFloat = 256
+    private nonisolated static let sidePx: CGFloat = 256
     /** Keep well under the Firestore rule's 60,000-character limit. */
-    private static let maxBase64Chars = 45_000
+    private nonisolated static let maxBase64Chars = 45_000
 
     @Published private var photos: [String: UIImage] = [:]
     private var requested = Set<String>()

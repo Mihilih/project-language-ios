@@ -100,7 +100,9 @@ targets:
         product: FirebaseCrashlytics
       - package: GoogleSignIn
         product: GoogleSignIn
-    postCompileScripts:
+    # Runs after every other phase: it reads GoogleService-Info.plist from the built app,
+    # which the resources phase copies in. As a postCompileScript it ran first and cycled.
+    postBuildScripts:
       # Uploads debug symbols so Crashlytics reports show file and line numbers.
       - name: Crashlytics symbols
         basedOnDependencyAnalysis: false
