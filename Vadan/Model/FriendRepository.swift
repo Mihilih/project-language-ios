@@ -87,6 +87,17 @@ final class FriendRepository {
         }
     }
 
+    /** Unfriends `friendUid` (the removeFriend Cloud Function deletes the friendship). */
+    func removeFriend(friendUid: String) async -> (Bool, String?) {
+        do {
+            let result = try await Backend.functions.httpsCallable("removeFriend").call(["friendUid": friendUid])
+            let success = result.dict.bool("success") ?? false
+            return (success, success ? nil : "Couldn't remove friend")
+        } catch {
+            return (false, error.message)
+        }
+    }
+
     func searchUsers(query: String) async -> ([PublicUserSearchResult], String?) {
         let trimmed = query.trimmed
         if trimmed.isBlank { return ([], nil) }

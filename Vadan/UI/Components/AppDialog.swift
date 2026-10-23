@@ -1,7 +1,7 @@
 import SwiftUI
 
 /**
- * Material's AlertDialog, as the app uses it (log out, delete account, reply): a rounded card
+ * Material's AlertDialog, as the app uses it (log out, delete account, remove friend): a rounded card
  * over a dim scrim with a title, content, and text buttons on the right. Shown by the root view
  * so it covers the tab bar too. Screens describe it with `AppDialog` and present it through
  * `DialogHost`.

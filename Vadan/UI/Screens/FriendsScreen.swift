@@ -17,6 +17,7 @@ struct FriendsScreen: View {
 
     // Friends tab
     @State private var friendQuery = ""
+    @State private var openFriendUid: String?
 
     // Suggestions tab
     @State private var unreadOnly = false
@@ -36,17 +37,36 @@ struct FriendsScreen: View {
 
         let openSuggestion = openSuggestionId.flatMap { id in uiState.suggestions.first { $0.id == id } }
         let showingDetail = uiState.activeTab == .suggestions && openSuggestion != nil
+        // Only while still friends: if the friendship goes away (removed here or by them), the
+        // profile closes on its own.
+        let openFriendship = openFriendUid.flatMap { uid in
+            uiState.friendships.first { $0.otherUid(currentUid) == uid }
+        }
+        let showingFriend = uiState.activeTab == .friends && openFriendship != nil
 
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
-                if showingDetail, let suggestion = openSuggestion {
+                if showingFriend, let friendship = openFriendship, let friendUid = openFriendUid {
+                    let friendName = nameFor(friendUid)
+                    FriendProfileView(
+                        friendUid: friendUid,
+                        friendName: friendName,
+                        friendship: friendship,
+                        received: uiState.suggestions.filter { $0.fromUid == friendUid },
+                        busySuggestionIds: uiState.pendingSuggestionIds,
+                        removing: uiState.removingFriendUids.contains(friendUid),
+                        onBack: { openFriendUid = nil },
+                        onSave: { saveSuggestion($0, nameFor) },
+                        onRemove: { confirmRemove(friendUid: friendUid, name: friendName) }
+                    )
+                    .id(friendUid)
+                } else if showingDetail, let suggestion = openSuggestion {
                     SuggestionDetail(
                         suggestion: suggestion,
                         senderName: nameFor(suggestion.fromUid),
                         busy: uiState.pendingSuggestionIds.contains(suggestion.id),
                         onBack: { openSuggestionId = nil },
                         onSave: { saveSuggestion(suggestion, nameFor) },
-                        onReply: { replyToSuggestion(suggestion) },
                         onDismiss: { dismissSuggestion(suggestion) }
                     )
                 } else {
@@ -63,6 +83,7 @@ struct FriendsScreen: View {
                             query: $friendQuery,
                             nameFor: nameFor,
                             onFindFriends: { showAddFriendSheet = true },
+                            onOpenFriend: { openFriendUid = $0 },
                             loaded: uiState.friendsLoaded
                         )
                     case .suggestions:
@@ -170,36 +191,22 @@ struct FriendsScreen: View {
         openSuggestionId = nil
     }
 
-    private func replyToSuggestion(_ suggestion: Suggestion) {
-        let model = ReplyDialogModel(text: suggestion.reply ?? "")
+    private func confirmRemove(friendUid: String, name: String) {
         dialogs.show(onDismissRequest: { dialogs.dismiss() }) {
-            ReplyDialog(model: model, onCancel: { dialogs.dismiss() }, onSend: { text in
-                viewModel.replyToSuggestion(suggestion.id, reply: text)
-                dialogs.dismiss()
-            })
-        }
-    }
-}
-
-// MARK: - Reply dialog
-
-@MainActor
-private final class ReplyDialogModel: ObservableObject {
-    @Published var text: String
-    init(text: String) { self.text = text }
-}
-
-private struct ReplyDialog: View {
-    @ObservedObject var model: ReplyDialogModel
-    let onCancel: () -> Void
-    let onSend: (String) -> Void
-
-    var body: some View {
-        AppDialog(title: "Reply to suggestion") {
-            DialogTextField(label: "Reply", text: $model.text, minLines: 3)
-        } buttons: {
-            DialogButton(text: "Cancel", action: onCancel)
-            DialogButton(text: "Send") { onSend(model.text) }
+            AppDialog(title: "Remove \(name)?") {
+                Text("You won't be able to send each other phrases until you're friends again. Phrases you've already shared stay where they are.")
+            } buttons: {
+                DialogButton(text: "Cancel") { dialogs.dismiss() }
+                DialogButton(text: "Remove", color: AppColor.error) {
+                    dialogs.dismiss()
+                    viewModel.removeFriend(friendUid) { success in
+                        if success {
+                            openFriendUid = nil
+                            toast.success("Removed \(name)")
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -296,6 +303,7 @@ private struct FriendsListTab: View {
     @Binding var query: String
     let nameFor: (String) -> String
     let onFindFriends: () -> Void
+    let onOpenFriend: (String) -> Void
     let loaded: Bool
 
     var body: some View {
@@ -317,7 +325,11 @@ private struct FriendsListTab: View {
                     }
                     ForEach(visible) { friendship in
                         if let uid = friendship.otherUid(currentUid) {
-                            FriendCard(name: nameFor(uid), friendship: friendship, friendUid: uid)
+                            Button { onOpenFriend(uid) } label: {
+                                FriendCard(name: nameFor(uid), friendship: friendship, friendUid: uid)
+                            }
+                            .buttonStyle(PressableStyle())
+                            .accessibilityHint("Opens their profile")
                         }
                     }
                     if !friendships.isEmpty && visible.isEmpty {
@@ -419,8 +431,13 @@ private struct FriendCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(AppColor.textSecondary)
+                .accessibilityHidden(true)
         }
         .padding(16)
+        .contentShape(Rectangle())
         .roundedBackground(AppColor.backgroundPrimary, 20)
         .accessibilityElement(children: .combine)
     }
@@ -462,6 +479,238 @@ private struct FindFriendsCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(DashedRoundedBorder(color: AppColor.neutral400, radius: 20))
+    }
+}
+
+// MARK: - Friend profile (tap a friend card)
+
+/** One phrase in "Suggestions between you": sent to me by the friend, or sent by me. */
+private struct SharedSuggestion: Identifiable {
+    let suggestion: Suggestion
+    let fromFriend: Bool
+    var id: String { suggestion.id }
+}
+
+private struct FriendProfileView: View {
+    let friendUid: String
+    let friendName: String
+    let friendship: Friendship
+    let received: [Suggestion]
+    let busySuggestionIds: Set<String>
+    let removing: Bool
+    let onBack: () -> Void
+    let onSave: (Suggestion) -> Void
+    let onRemove: () -> Void
+
+    @StateObject private var sent = SentSuggestionsModel()
+    @State private var bio = ""
+
+    var body: some View {
+        let profile = friendship.userProfiles[friendUid]
+        let streak = profile?.currentStreak ?? 0
+        let languages = profile?.learningLanguages ?? []
+        let since = formatDate(friendship.createdAt, "MMMM d, yyyy")
+        let shared = (received.map { SharedSuggestion(suggestion: $0, fromFriend: true) } +
+            sent.items.map { SharedSuggestion(suggestion: $0, fromFriend: false) })
+            .sorted { ($0.suggestion.createdAt?.millis ?? 0) > ($1.suggestion.createdAt?.millis ?? 0) }
+
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: onBack) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.left").font(.system(size: 18, weight: .medium))
+                    Text("Friends").font(AppFont.dmSans(16, .bold))
+                }
+                .foregroundStyle(AppColor.textPrimary)
+                .padding(.trailing, 12)
+                .frame(height: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+
+            ScrollView {
+                VStack(spacing: 12) {
+                    // Who they are
+                    VStack(spacing: 6) {
+                        FriendAvatar(name: friendName, size: 88, tinted: false, uid: friendUid)
+                            .padding(.bottom, 4)
+                        Text(friendName)
+                            .font(AppFont.poppins(26))
+                            .foregroundStyle(AppColor.textPrimary)
+                            .multilineTextAlignment(.center)
+                            .accessibilityAddTraits(.isHeader)
+                        if !bio.isEmpty {
+                            Text(bio)
+                                .font(AppFont.dmSans(15))
+                                .foregroundStyle(AppColor.textBody)
+                                .multilineTextAlignment(.center)
+                        }
+                        if !since.isEmpty {
+                            Text("Friends since \(since)")
+                                .font(AppFont.dmSans(13, .semibold))
+                                .foregroundStyle(AppColor.textSecondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
+
+                    // Streak + languages
+                    HStack(spacing: 10) {
+                        ProfileStat(value: "\(streak)", label: "day streak", icon: "flame.fill")
+                        ProfileStat(value: "\(languages.count)", label: languages.count == 1 ? "language" : "languages")
+                    }
+                    if !languages.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("LEARNING").overlineStyle()
+                            FlowLayout(spacing: 8, lineSpacing: 8) {
+                                ForEach(languages, id: \.self) { code in
+                                    Text(Languages.displayName(code))
+                                        .font(AppFont.dmSans(14, .semibold))
+                                        .foregroundStyle(AppColor.textPrimary)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 7)
+                                        .background(Capsule().fill(AppColor.backgroundSecondary))
+                                }
+                            }
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .roundedBackground(AppColor.backgroundPrimary, 20)
+                    }
+
+                    // Suggestions between you
+                    Text("SUGGESTIONS BETWEEN YOU")
+                        .overlineStyle()
+                        .accessibilityAddTraits(.isHeader)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 8)
+                        .padding(.leading, 4)
+                    if shared.isEmpty {
+                        Text("No phrases shared yet. Send \(friendName) one from Translate or your Library.")
+                            .font(AppFont.dmSans(15))
+                            .foregroundStyle(AppColor.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 4)
+                    }
+                    ForEach(shared) { item in
+                        SharedSuggestionCard(
+                            item: item,
+                            friendName: friendName,
+                            busy: busySuggestionIds.contains(item.id),
+                            onSave: { onSave(item.suggestion) }
+                        )
+                    }
+
+                    // Remove friend
+                    Button(action: onRemove) {
+                        HStack(spacing: 8) {
+                            if removing {
+                                ProgressView().tint(AppColor.error).controlSize(.small)
+                            } else {
+                                Image(systemName: "person.badge.minus").font(.system(size: 15, weight: .semibold))
+                                Text("Remove friend").font(AppFont.dmSans(15, .bold))
+                            }
+                        }
+                        .foregroundStyle(AppColor.error)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Capsule().fill(AppColor.backgroundPrimary))
+                        .overlay(Capsule().strokeBorder(AppColor.neutral300, lineWidth: 1.5))
+                    }
+                    .buttonStyle(PressableStyle())
+                    .disabled(removing)
+                    .padding(.top, 12)
+                }
+                .padding(.bottom, 24)
+            }
+        }
+        .padding(.top, 8)
+        .task {
+            sent.start(friendUid: friendUid)
+            bio = await UserProfileRepository.shared.fetchProfile(uid: friendUid).bio
+        }
+    }
+}
+
+private struct ProfileStat: View {
+    let value: String
+    let label: String
+    var icon: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 20))
+                        .foregroundStyle(AppColor.accent)
+                }
+                Text(value)
+                    .font(AppFont.poppins(30))
+                    .foregroundStyle(AppColor.textPrimary)
+            }
+            Text(label)
+                .font(AppFont.dmSans(14))
+                .foregroundStyle(AppColor.textSecondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .roundedBackground(AppColor.backgroundPrimary, 20)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct SharedSuggestionCard: View {
+    let item: SharedSuggestion
+    let friendName: String
+    let busy: Bool
+    let onSave: () -> Void
+
+    var body: some View {
+        let suggestion = item.suggestion
+        let phrase = suggestion.phraseSnapshot
+        let date = formatDate(suggestion.createdAt, "MMM d")
+        let status = suggestion.status.lowercased()
+        let who = item.fromFriend ? "From \(friendName)" : "You sent"
+        // What happened to it: for theirs, whether I kept it; for mine, whether they did.
+        let outcome: String? = {
+            if status == "saved" { return "Saved" }
+            if status == "dismissed" { return "Dismissed" }
+            if !item.fromFriend { return status == "pending" ? "Not opened yet" : "Seen" }
+            return nil
+        }()
+        let canSave = item.fromFriend && inboxStatuses.contains(status)
+
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(date.isEmpty ? who : "\(who) · \(date)")
+                    .font(AppFont.dmSans(13, .semibold))
+                    .foregroundStyle(AppColor.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let outcome {
+                    Text(outcome)
+                        .font(AppFont.dmSans(13, .bold))
+                        .foregroundStyle(status == "saved" ? AppColor.accent : AppColor.textSecondary)
+                }
+            }
+            Text(phrase.original)
+                .font(AppFont.dmSans(14))
+                .foregroundStyle(AppColor.textBody)
+            Text(phrase.translated)
+                .phraseTextStyle()
+            if phrase.romanized.isNotBlank {
+                Text(phrase.romanized)
+                    .font(AppFont.dmSans(13))
+                    .foregroundStyle(AppColor.textSecondary)
+                    .slanted()
+            }
+            if canSave {
+                PillButton(text: busy ? "Saving…" : "Save to library", enabled: !busy, filled: true, action: onSave)
+                    .padding(.top, 4)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .roundedBackground(AppColor.backgroundPrimary, 20)
     }
 }
 
@@ -621,14 +870,12 @@ private struct SuggestionDetail: View {
     let busy: Bool
     let onBack: () -> Void
     let onSave: () -> Void
-    let onReply: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
         let phrase = suggestion.phraseSnapshot
         let date = formatDate(suggestion.createdAt, "MMMM d")
         let message = (suggestion.message ?? "").trimmed
-        let reply = (suggestion.reply ?? "").trimmed
         let pair = languagePair(phrase.sourceLang, phrase.targetLang, Languages.displayName).uppercased()
 
         VStack(alignment: .leading, spacing: 0) {
@@ -701,23 +948,6 @@ private struct SuggestionDetail: View {
                                         .fill(AppColor.neutral100)
                                 )
                         }
-                        if !reply.isEmpty {
-                            VStack(alignment: .trailing, spacing: 4) {
-                                Text("Your reply")
-                                    .font(AppFont.dmSans(13))
-                                    .foregroundStyle(AppColor.textSecondary)
-                                Text(reply)
-                                    .font(AppFont.dmSans(15))
-                                    .foregroundStyle(AppColor.primaryDark)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 10)
-                                    .background(
-                                        UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 16, bottomTrailingRadius: 16, topTrailingRadius: 6)
-                                            .fill(AppColor.primarySoft)
-                                    )
-                            }
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -728,17 +958,7 @@ private struct SuggestionDetail: View {
             Spacer().frame(height: 12)
             PrimaryPillButton(text: busy ? "Saving…" : "Save to library", icon: "bookmark.fill", enabled: !busy, action: onSave)
             Spacer().frame(height: 10)
-            HStack(spacing: 10) {
-                PillButton(
-                    text: reply.isEmpty ? "Reply" : "Edit reply",
-                    enabled: !busy,
-                    filled: false,
-                    icon: "arrowshape.turn.up.left",
-                    height: 50,
-                    action: onReply
-                )
-                PillButton(text: "Dismiss", enabled: !busy, filled: false, height: 50, action: onDismiss)
-            }
+            PillButton(text: "Dismiss", enabled: !busy, filled: false, height: 50, action: onDismiss)
         }
         .padding(.top, 8)
         .padding(.bottom, 16)

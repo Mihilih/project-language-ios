@@ -65,19 +65,25 @@ final class SuggestionRepository {
         }
     }
 
-    func replyToSuggestion(suggestionId: String, reply: String) async -> (Bool, String?) {
-        let cleanedReply = reply.trimmed
-        if cleanedReply.isBlank { return (false, "Reply cannot be empty") }
-        do {
-            try await Backend.db.collection("suggestions").document(suggestionId).updateData([
-                "reply": cleanedReply,
-                "status": "replied",
-                "readAt": FieldValue.serverTimestamp(),
-            ])
-            return (true, nil)
-        } catch {
-            return (false, error.message)
+    /** Phrases the signed-in user has sent to `friendUid`, newest first (for their profile). */
+    func suggestionsSentTo(_ friendUid: String, onChange: @escaping (Result<[Suggestion], Error>) -> Void) -> ListenerRegistration? {
+        guard let currentUid = AuthManager.getCurrentUserId() else {
+            onChange(.success([]))
+            return nil
         }
+        return Backend.db.collection("suggestions")
+            .whereField("fromUid", isEqualTo: currentUid)
+            .whereField("toUid", isEqualTo: friendUid)
+            .addSnapshotListener { snapshot, error in
+                if let error {
+                    onChange(.failure(error))
+                    return
+                }
+                let items = (snapshot?.documents ?? [])
+                    .map(Self.toSuggestion)
+                    .sorted { ($0.createdAt?.millis ?? 0) > ($1.createdAt?.millis ?? 0) }
+                onChange(.success(items))
+            }
     }
 
     private static func toSuggestion(_ doc: QueryDocumentSnapshot) -> Suggestion {
@@ -90,7 +96,6 @@ final class SuggestionRepository {
             phraseSnapshot: snapshot.map(toPhraseSnapshot) ?? PhraseSnapshot(),
             message: data.string("message"),
             status: data.string("status").orEmpty,
-            reply: data.string("reply"),
             createdAt: data.timestamp("createdAt"),
             readAt: data.timestamp("readAt")
         )

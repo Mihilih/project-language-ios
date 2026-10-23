@@ -48,7 +48,6 @@ struct Suggestion: Identifiable, Equatable {
     var phraseSnapshot: PhraseSnapshot = PhraseSnapshot()
     var message: String? = nil
     var status: String = ""
-    var reply: String? = nil
     var createdAt: Timestamp? = nil
     var readAt: Timestamp? = nil
 }

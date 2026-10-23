@@ -22,6 +22,8 @@ struct FriendsUiState {
     var pendingOutgoingRequests: Set<String> = []
     var pendingRequestIds: Set<String> = []
     var pendingSuggestionIds: Set<String> = []
+    /** Friends being removed right now (the button shows progress). */
+    var removingFriendUids: Set<String> = []
     var errorMessage: String? = nil
 }
 
@@ -136,13 +138,14 @@ final class FriendsViewModel: ObservableObject {
         }
     }
 
-    func replyToSuggestion(_ suggestionId: String, reply: String) {
-        uiState.pendingSuggestionIds.insert(suggestionId)
+    func removeFriend(_ friendUid: String, onResult: @escaping (Bool) -> Void = { _ in }) {
+        uiState.removingFriendUids.insert(friendUid)
         uiState.errorMessage = nil
         Task {
-            let (success, message) = await suggestionRepository.replyToSuggestion(suggestionId: suggestionId, reply: reply)
-            uiState.pendingSuggestionIds.remove(suggestionId)
-            uiState.errorMessage = success ? nil : friendlyError(message)
+            let (success, message) = await friendRepository.removeFriend(friendUid: friendUid)
+            uiState.removingFriendUids.remove(friendUid)
+            uiState.errorMessage = success ? nil : friendlyError(message, fallback: "Couldn't remove friend. Please try again.")
+            onResult(success)
         }
     }
 
@@ -224,4 +227,23 @@ func friendlyError(_ raw: String?, fallback: String = "Something went wrong. Ple
         return fallback
     }
     return raw
+}
+
+/** Live list of phrases the signed-in user has sent to one friend (their profile). */
+@MainActor
+final class SentSuggestionsModel: ObservableObject {
+    @Published private(set) var items: [Suggestion] = []
+    private var listener: ListenerRegistration?
+
+    func start(friendUid: String) {
+        listener?.remove()
+        listener = SuggestionRepository.shared.suggestionsSentTo(friendUid) { [weak self] result in
+            Task { @MainActor in
+                // A failed listener just shows nothing sent.
+                self?.items = (try? result.get()) ?? []
+            }
+        }
+    }
+
+    deinit { listener?.remove() }
 }
