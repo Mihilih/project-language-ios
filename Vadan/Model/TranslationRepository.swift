@@ -59,6 +59,7 @@ final class TranslationRepository {
             store(key(text, sourceLang, targetLang), value)
             return .success(value)
         } catch {
+            print("⚠️ translate failed: \(error)")
             return .failure(TranslationError(message: friendlyMessage(error)))
         }
     }

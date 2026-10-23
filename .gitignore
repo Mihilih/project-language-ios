@@ -14,3 +14,6 @@ DerivedData/
 
 # XcodeGen downloaded by scripts/setup.sh
 .tools/
+
+# App Check debug token (a credential), written by scripts/setup.sh
+Config/AppCheck.xcconfig

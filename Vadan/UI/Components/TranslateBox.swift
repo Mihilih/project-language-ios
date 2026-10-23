@@ -180,6 +180,8 @@ struct TranslateInputTextField: View {
     var showClear: Bool = false
     var onClear: () -> Void = {}
 
+    @FocusState private var focused: Bool
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !languageLabel.isEmpty {
@@ -198,21 +200,39 @@ struct TranslateInputTextField: View {
                     .foregroundStyle(AppColor.textPrimary)
                     .tint(AppColor.accent)
                     .lineLimit(1...)
+                    .focused($focused)
                     .accessibilityLabel("Type or paste a phrase to translate")
             }
             .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
-            if showClear {
-                HStack {
-                    Spacer()
-                    Button(action: onClear) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(AppColor.textSecondary)
-                            .frame(width: 40, height: 40)
-                            .contentShape(Rectangle())
+            if showClear || focused {
+                HStack(spacing: 4) {
+                    // A multi-line field's Return key adds a line, so iOS needs a way to close
+                    // the keyboard (Android has its back button). Without one, the keyboard
+                    // stayed up and the tab bar stayed hidden.
+                    if focused {
+                        Button { focused = false } label: {
+                            Text("Done")
+                                .font(AppFont.dmSans(15, .semibold))
+                                .foregroundStyle(AppColor.accent)
+                                .padding(.horizontal, 10)
+                                .frame(height: 40)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PressableStyle())
+                        .accessibilityLabel("Hide keyboard")
                     }
-                    .buttonStyle(PressableStyle())
-                    .accessibilityLabel("Clear text")
+                    Spacer()
+                    if showClear {
+                        Button(action: onClear) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(AppColor.textSecondary)
+                                .frame(width: 40, height: 40)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PressableStyle())
+                        .accessibilityLabel("Clear text")
+                    }
                 }
             }
         }

@@ -36,7 +36,10 @@ final class SessionViewModel: ObservableObject {
         state = .loading
         refreshTask = Task {
             let (username, error) = await userProfileRepository.fetchUsername(uid: uid)
-            if error != nil {
+            if let error {
+                // Shows up in Xcode's console. "Missing or insufficient permissions" here
+                // usually means App Check rejected this build (see README).
+                print("⚠️ Couldn't read the profile, skipping username check for now: \(error)")
                 // Couldn't read the profile (offline, or the request was rejected). Don't lock
                 // people out, but keep checking until we get a real answer.
                 resolve(.ready, onResolved)

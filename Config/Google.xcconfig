@@ -1,3 +1,6 @@
 // Google Sign-In's return URL scheme: REVERSED_CLIENT_ID from GoogleService-Info.plist.
 // scripts/setup.sh rewrites this from the plist; edit by hand only if you're not using the script.
 GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.505076134250-74u09a76q80t1er3rob500dk8pefl5js
+
+// App Check debug token (git-ignored; see README).
+#include? "AppCheck.xcconfig"

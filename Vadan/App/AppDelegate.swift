@@ -69,20 +69,47 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 }
 
 /**
- * App Check: debug builds (the Simulator and Xcode installs) use the debug provider, which
- * prints a token to the Xcode console on first launch ("Firebase App Check debug token: …");
- * add it in Firebase console → App Check → Apps → your iOS app → Manage debug tokens.
+ * App Check: debug builds (the Simulator and Xcode installs) use the debug provider with the
+ * token from Config/AppCheck.xcconfig, which must also be registered in Firebase console →
+ * App Check → Apps → Vadan (iOS) → Manage debug tokens.
  * Release builds use App Attest (needs a paid Apple Developer account and the App Attest
  * capability), falling back to DeviceCheck.
  */
 enum AppCheckSetup {
     static func install() {
         #if DEBUG
+        useRegisteredDebugToken()
         AppCheck.setAppCheckProviderFactory(AppCheckDebugProviderFactory())
         #else
         AppCheck.setAppCheckProviderFactory(VadanAppCheckProviderFactory())
         #endif
     }
+
+    #if DEBUG
+    /**
+     * The debug provider uses the scheme's FIRAAppCheckDebugToken environment variable, but
+     * Xcode only passes that when it launches the app — opening Vadan from the home screen, or
+     * after setup.sh rebuilt the scheme, falls back to a random token that Firebase rejects
+     * (translation, audio, friends and Firestore all fail). So the registered token is also
+     * baked into the debug build (Config/AppCheck.xcconfig → Info.plist) and stored where the
+     * provider looks when there's no environment variable.
+     */
+    private static func useRegisteredDebugToken() {
+        let fromEnvironment = ProcessInfo.processInfo.environment["FIRAAppCheckDebugToken"]
+        let fromBuild = (Bundle.main.object(forInfoDictionaryKey: "AppCheckDebugToken") as? String)?
+            .trimmingCharacters(in: .whitespaces)
+        let token = [fromEnvironment, fromBuild].compactMap { $0 }.first { !$0.isEmpty && !$0.hasPrefix("$(") }
+        guard let token else {
+            print("⚠️ App Check: no debug token set. Add it to Config/AppCheck.xcconfig (see README), or translation and friends will be rejected.")
+            return
+        }
+        // Older and newer SDKs read different keys; set both.
+        for key in ["GACAppCheckDebugToken", "FIRAAppCheckDebugToken"] {
+            UserDefaults.standard.set(token, forKey: key)
+        }
+        print("App Check: using debug token …\(token.suffix(6))")
+    }
+    #endif
 }
 
 final class VadanAppCheckProviderFactory: NSObject, AppCheckProviderFactory {

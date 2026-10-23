@@ -43,6 +43,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        # App Check debug token for debug builds, from the git-ignored Config/AppCheck.xcconfig
+        # (scripts/setup.sh creates it). Empty in builds without that file.
+        AppCheckDebugToken: $(APP_CHECK_DEBUG_TOKEN)
         LSRequiresIPhoneOS: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false

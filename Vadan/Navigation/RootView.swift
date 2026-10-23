@@ -169,7 +169,11 @@ struct MainTabsView: View {
             }
         }
         .background(AppColor.backgroundSecondary.ignoresSafeArea())
-        .onChange(of: selected) { _, tab in visited.insert(tab) }
+        .onChange(of: selected) { _, tab in
+            visited.insert(tab)
+            // Hidden tabs stay alive, so a field on the old tab would keep the keyboard up.
+            KeyboardObserver.dismiss()
+        }
         // A study session is full screen (like the design), without the tab bar.
         .fullScreenCover(item: $studyRoute) { route in
             StudySessionScreen(route: route) { studyRoute = nil }
@@ -215,19 +219,40 @@ struct MainTabsView: View {
     }
 }
 
-/** Whether the software keyboard is on screen. */
+/**
+ * Whether the software keyboard is actually covering the screen. Judged by its frame, not by
+ * show/hide notifications alone: with a hardware keyboard (or the Simulator's "Connect Hardware
+ * Keyboard"), iOS still posts "will show" for an off-screen or toolbar-only keyboard, which used
+ * to hide the tab bar with nothing visible in its place.
+ */
 @MainActor
 final class KeyboardObserver: ObservableObject {
     static let shared = KeyboardObserver()
     @Published private(set) var isVisible = false
 
+    /** Anything shorter than this is a shortcut bar, not a keyboard covering the tab bar. */
+    private static let minimumHeight: CGFloat = 120
+
     private init() {
         let center = NotificationCenter.default
-        center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.isVisible = true }
+        center.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
+            let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue ?? .zero
+            MainActor.assumeIsolated { self?.update(frame) }
         }
         center.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.isVisible = false }
         }
+    }
+
+    private func update(_ frame: CGRect) {
+        let screen = UIScreen.main.bounds
+        let covered = max(0, screen.maxY - max(frame.minY, screen.minY))
+        let onScreen = frame.intersects(screen) && covered >= Self.minimumHeight
+        if isVisible != onScreen { isVisible = onScreen }
+    }
+
+    /** Closes the keyboard, wherever focus is. */
+    static func dismiss() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }

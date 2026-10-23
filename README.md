@@ -14,19 +14,21 @@ Firebase project, Firestore data and Cloud Functions
 
 The Firebase config (`Vadan/GoogleService-Info.plist`) and Google Sign-In's URL scheme
 (`Config/Google.xcconfig`) are already in the repo. The only thing not in it is the App Check
-debug token (step 6), because it's a credential.
+debug token (step 3), because it's a credential.
 
 1. Install **Xcode** from the App Store and open it once.
 2. Get the code (clone, or download the ZIP of the branch from GitHub) and open Terminal in the folder.
-3. Run `./scripts/setup.sh`. It uses XcodeGen if installed, otherwise downloads it into `.tools/`
-   (no Homebrew needed), then generates `Vadan.xcodeproj`.
+3. Run `./scripts/setup.sh <debug-token>`, with the debug token from Firebase console → App Check →
+   Vadan (iOS) → *Manage debug tokens* (it asks for it if you leave it out). The token is saved in
+   `Config/AppCheck.xcconfig`, which git ignores, and built into debug builds — so it works whether
+   the app is started from Xcode or from the home screen, and survives re-running the script.
+   Without it, translation, audio, friends and the username check are rejected by App Check. The
+   script uses XcodeGen if installed, otherwise downloads it into `.tools/` (no Homebrew needed),
+   then generates `Vadan.xcodeproj`.
 4. `open Vadan.xcodeproj` and wait for Xcode to fetch the Swift packages.
 5. *Vadan* target → *Signing & Capabilities* → *Team*: add your Apple ID and pick its Personal Team.
-6. *Product → Scheme → Edit Scheme… → Run → Arguments → Environment Variables → +*. Name:
-   `FIRAAppCheckDebugToken`, value: the debug token from Firebase console → App Check → Vadan (iOS)
-   → *Manage debug tokens*. Without it, translation, audio and friends are rejected by App Check.
-   (Re-running `setup.sh` regenerates the scheme, so add it again after that.)
-7. Choose an iPhone simulator and press ⌘R.
+6. Choose an iPhone simulator and press ⌘R. The Xcode console should print
+   `App Check: using debug token …` with the token's last six characters.
 
 Re-run `./scripts/setup.sh` whenever you add or remove Swift files.
 
