@@ -10,10 +10,10 @@ struct SpeechState: Equatable {
 }
 
 /**
- * Reads phrases aloud with Azure voices through the `speak` Cloud Function
- * (model/SpeechRepository.kt).
+ * Reads phrases aloud through the `speak` Cloud Function (Google Gemini voices, with Azure for
+ * the languages Gemini doesn't read) (model/SpeechRepository.kt).
  *
- * Each clip is saved under Caches/tts, so replaying a phrase (flashcards!) is instant and
+ * Each clip is saved under Caches/tts2, so replaying a phrase (flashcards!) is instant and
  * offline. Which languages have a voice comes from the `ttsLanguages` function and is kept on
  * the device, so the speaker buttons and the picker's audio badge show without waiting.
  */
@@ -22,7 +22,7 @@ final class SpeechRepository: NSObject, ObservableObject, AVAudioPlayerDelegate 
     static let shared = SpeechRepository()
 
     private static let keySupported = "speech.supported_languages"
-    /** Shown before the first list arrives; all of these have Azure voices. */
+    /** Shown before the first list arrives; all of these have voices. */
     private static let defaultSupported: Set<String> = ["en", "si", "ta", "hi", "mr"]
 
     /** App language codes that can be read aloud. Starts with the last known list. */
@@ -157,8 +157,15 @@ final class SpeechRepository: NSObject, ObservableObject, AVAudioPlayerDelegate 
         }
     }
 
+    /**
+     * Bump the folder name whenever the voices change, so phones stop replaying old clips.
+     * "tts" held the Azure-only clips; it's removed the first time this runs.
+     */
     private func cacheDir() -> URL {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("tts")
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let old = caches.appendingPathComponent("tts")
+        if FileManager.default.fileExists(atPath: old.path) { try? FileManager.default.removeItem(at: old) }
+        let dir = caches.appendingPathComponent("tts2")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
